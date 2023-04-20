@@ -1,0 +1,18 @@
+# NOTE: python 3.9 version
+name: fast_nsf
+channels:
+  - nvidia
+  - pytorch
+  - defaults
+  - fvcore
+  - iopath
+  - conda-forge
+  - bottler
+  - pytorch3d
+dependencies:
+  - pytorch::pytorch-cuda=11.6
+  - python=3.9.15
+  - pytorch::pytorch=1.12.0
+  - pip
+  - pip:
+    - open3d
