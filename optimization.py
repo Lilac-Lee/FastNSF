@@ -400,7 +400,7 @@ def solver(
     
     params = net.parameters()
     
-    optimizer = torch.optim.SGD(params, lr=options.lr, momentum=options.momentum, weight_decay=options.weight_decay)
+    optimizer = torch.optim.Adam(params, lr=options.lr, weight_decay=0)
                 
     total_losses = []
     total_acc_strit = []
@@ -614,7 +614,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=1, metavar='batch_size', help='Batch size.')
     parser.add_argument('--iters', type=int, default=5000, metavar='N', help='Number of iterations to optimize the model.')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='Learning rate.')
-    parser.add_argument('--momentum', type=float, default=0, metavar='M', help='SGD momentum (default: 0.9).')
     parser.add_argument('--device', default='cuda:0', type=str, help='device: cpu? cuda?')
     parser.add_argument('--seed', type=int, default=1234, metavar='S', help='Random seed (default: 1234).')
     parser.add_argument('--dataset', type=str, default='ArgoverseSceneFlowDataset',
@@ -625,7 +624,6 @@ if __name__ == "__main__":
     
     # For neural prior
     parser.add_argument('--model', type=str, default='neural_prior', choices=['neural_prior', 'linear_model', 'kronecker_model'], metavar='N', help='Model to use.')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, metavar='N', help='Weight decay.')
     parser.add_argument('--hidden_units', type=int, default=128, metavar='N', help='Number of hidden units in neural prior')
     parser.add_argument('--layer_size', type=int, default=8, help='how many hidden layers in the model.')
     parser.add_argument('--use_all_points', action='store_true', default=False, help='use all the points or not.')
