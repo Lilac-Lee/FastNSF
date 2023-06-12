@@ -99,7 +99,7 @@ Local source notebook could be found [here](demo/optimize_2d_fastNSF_dt.ipynb).
 ### Contributing
 If you find the project useful for your research, you may cite,
 ```
-  @article{li2013fast,
+  @article{li2023fast,
   title={Fast Neural Scene Flow},
   author={Li, Xueqian and Zheng, Jianqiao and Ferroni, Francesco and Kaesemodel Pontes, Jhony and Lucey, Simon},
   journal={arXiv preprint arXiv:2304.09121},
