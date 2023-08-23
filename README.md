@@ -1,11 +1,12 @@
-# FastNSF
+# FastNSF -- Fast Neural Scene Flow
 
-### Implementation of [Fast Neural Scene Flow](https://arxiv.org/pdf/2304.09121.pdf).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [Xueqian Li](https://lilac-lee.github.io/), [Jianqiao Zheng](https://github.com/osiriszjq), [Francesco Ferroni](https://www.francescoferroni.com/) [Jhony Kaesemodel Pontes](https://jhonykaesemodel.com/), 
 [Simon Lucey](https://www.adelaide.edu.au/directory/simon.lucey)
 
+19th International Conference on Computer Vision (**ICCV, 2023**)
 
 Project page: https://Lilac-Lee.github.io/FastNSF
 
