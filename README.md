@@ -16,6 +16,7 @@ arXiv link: https://arxiv.org/pdf/2304.09121.pdf
 
 - [x] update installation packages.
 - [x] test all commands.
+- [x] update Waymo Open dataset processing instructions.
 
 ---
 
@@ -49,6 +50,8 @@ You may download datasets used in the paper from these links:
 - [Waymo Open](https://drive.google.com/file/d/1urONegaI6pS47bUv-Kw0nl0oGFzGfIl2/view?usp=sharing) (453MB)
 
 After you download the dataset, you can create a symbolic link in the ./dataset folder as ```./dataset/argoverse``` and ```./dataset/waymo```.
+<br></br>
+#### **UPDATE**: for Argoverse scene flow dataset preprocessing, please refer to [Neural Scene Flow Prior](https://github.com/Lilac-Lee/Neural_Scene_Flow_Prior); for Waymo Open scene flow dataset preprocessing, please refer to [this instruction](utils/WAYMO_OPEN_README.md).
 
 ---
 
