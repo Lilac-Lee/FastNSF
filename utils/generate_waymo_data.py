@@ -16,6 +16,7 @@ from waymo_open_dataset import dataset_pb2
 
 
 WAYMO_CLASSES = ['unknown', 'Vehicle', 'Pedestrian', 'Sign', 'Cyclist']
+WAYMO_GROUND = 0.34
 
 
 def parse_range_image_flow_and_camera_projection(frame):
@@ -299,8 +300,10 @@ def gen_flow_func(args):
         for idx in range(len(npy_file_list) - 1):
             info_1 = labels[idx]   # ['point_cloud', 'frame_id', 'image', 'pose', 'annos', 'num_points_of_each_lidar']
             name_from_info1 = '%04d' % info_1['point_cloud']['sample_idx']
+            pose_1 = info_1['pose']  # 4x4
             info_2 = labels[idx + 1]
             name_from_info2 = '%04d' % info_2['point_cloud']['sample_idx']
+            pose_2 = info_2['pose']  # 4x4
 
             pc1_path = npy_file_list[idx]
             pc2_path = npy_file_list[idx + 1]
@@ -327,9 +330,26 @@ def gen_flow_func(args):
             flow_data = flow_data_list[idx+1]
             flow_data = flow_data[flag2 == -1]
             
+            # NOTE: convert flow data to be consistent with our implementation
+            sf = flow_data * 0.1
+            translation_1 = pose_1[0:3, 3]
+            rotation_1 = pose_1[0:3, 0:3]
+            translation_2 = pose_2[0:3, 3]
+            rotation_2 = pose_2[0:3, 0:3]
+            rotation_inv_2 = np.linalg.inv(rotation_2)
+            sf = pc2_data - ((pc2_data - sf) @ rotation_inv_2 + translation_2 - translation_1) @ rotation_1
+            
+            # NOTE: need to remove ground first
+            non_ground_pc1 = pc2_data[..., 2] > WAYMO_GROUND
+            non_ground_pc2 = pc1_data[..., 2] > WAYMO_GROUND
+            pc1 = pc2_data[non_ground_pc1]
+            pc2 = pc1_data[non_ground_pc2]
+            flow = -sf[non_ground_pc1]
+            
             savez_path = os.path.join(savez_path_k, pc1_name + '_' + pc2_name + '.npz')
             print(savez_path)
-            np.savez_compressed(savez_path, pc1=pc1_data, pc2=pc2_data, flow=flow_data)
+            # NOTE: the flow label is in reverse order
+            np.savez_compressed(savez_path, pc1=pc1, pc2=pc2, flow=flow)
             
 
 def drop_info_with_name(info, name):
@@ -486,6 +506,12 @@ def create_waymo_infos(args, logger=None):
     infos.extend(waymo_infos[:])
     logger.info('Total skipped info %s' % num_skipped_infos)
     logger.info('Total samples for Waymo dataset: %d' % (len(waymo_infos)))
+    
+    # sampled_waymo_infos = []
+    # for k in range(0, len(infos), 5):
+    #     sampled_waymo_infos.append(infos[k])
+    # infos = sampled_waymo_infos
+    # logger.info('Total sampled samples for Waymo dataset: %d' % len(infos))
         
     # ANCHOR: get dataset infos
     print('---------------The waymo sample interval is %d, total sequecnes is %d-----------------'

@@ -88,7 +88,7 @@ def flow_to_rgb(
     (angle_fractional, angle_floor), angle_ceil = np.modf(angle), np.ceil(angle)
     angle_fractional = angle_fractional.reshape((angle_fractional.shape) + (1,))
     float_hue = (
-        wheel[angle_floor.astype(np.int)] * (1 - angle_fractional) + wheel[angle_ceil.astype(np.int)] * angle_fractional
+        wheel[angle_floor.astype(np.int32)] * (1 - angle_fractional) + wheel[angle_ceil.astype(np.int32)] * angle_fractional
     )
     ColorizationArgs = namedtuple(
         'ColorizationArgs', ['move_hue_valid_radius', 'move_hue_oversized_radius', 'invalid_color']
@@ -99,10 +99,10 @@ def flow_to_rgb(
         return 255. - np.expand_dims(factors, -1) * (255. - hues)
     if background == "dark":
         parameters = ColorizationArgs(
-            move_hue_on_V_axis, move_hue_on_S_axis, np.array([255, 255, 255], dtype=np.float)
+            move_hue_on_V_axis, move_hue_on_S_axis, np.array([255, 255, 255], dtype=np.float32)
         )
     else:
-        parameters = ColorizationArgs(move_hue_on_S_axis, move_hue_on_V_axis, np.array([0, 0, 0], dtype=np.float))
+        parameters = ColorizationArgs(move_hue_on_S_axis, move_hue_on_V_axis, np.array([0, 0, 0], dtype=np.float32))
     colors = parameters.move_hue_valid_radius(float_hue, radius)
     oversized_radius_mask = radius > 1
     colors[oversized_radius_mask] = parameters.move_hue_oversized_radius(
