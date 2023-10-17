@@ -3,8 +3,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[Xueqian Li](https://lilac-lee.github.io/), [Jianqiao Zheng](https://github.com/osiriszjq), [Francesco Ferroni](https://www.francescoferroni.com/) [Jhony Kaesemodel Pontes](https://jhonykaesemodel.com/), 
-[Simon Lucey](https://www.adelaide.edu.au/directory/simon.lucey)
+[Xueqian Li](https://lilac-lee.github.io/), [Jianqiao Zheng](https://scholar.google.com/citations?user=R8d2QOsAAAAJ&hl=en&oi=ao), [Francesco Ferroni](https://www.francescoferroni.com/), [Jhony Kaesemodel Pontes](https://jhonykaesemodel.com/), 
+[Simon Lucey](https://scholar.google.com.au/citations?user=vmAe35UAAAAJ&hl=en).
 
 19th International Conference on Computer Vision (**ICCV, 2023**)
 
@@ -18,6 +18,7 @@ arXiv link: https://arxiv.org/pdf/2304.09121.pdf
 - [x] update installation packages.
 - [x] test all commands.
 - [x] update Waymo Open dataset processing instructions.
+- [x] update project page.
 
 ---
 
@@ -103,10 +104,12 @@ Local source notebook could be found [here](demo/optimize_2d_fastNSF_dt.ipynb).
 ### Contributing
 If you find the project useful for your research, you may cite,
 ```
-  @article{li2023fast,
+@InProceedings{Li_2023_ICCV,
   title={Fast Neural Scene Flow},
-  author={Li, Xueqian and Zheng, Jianqiao and Ferroni, Francesco and Kaesemodel Pontes, Jhony and Lucey, Simon},
-  journal={arXiv preprint arXiv:2304.09121},
-  year={2023}
+  author={Li, Xueqian and Zheng, Jianqiao and Ferroni, Francesco and Pontes, Jhony Kaesemodel and Lucey, Simon},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  month={October},
+  year={2023},
+  pages={9878-9890}
 }
 ```
