@@ -4,6 +4,7 @@ import argparse
 import logging
 import os, glob
 import time
+import math
 from collections import defaultdict, namedtuple
 from itertools import accumulate
 from typing import Optional
@@ -136,7 +137,7 @@ def custom_draw_geometry_with_key_callback(pcds):
     key_to_callback[ord(",")] = capture_depth
     key_to_callback[ord(".")] = capture_image
     o3d.visualization.draw_geometries_with_key_callbacks(pcds, key_to_callback)
-    
+
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
@@ -329,67 +330,187 @@ class DT:
         dist = F.grid_sample(target, sample_.view(1,-1,1,1,3), mode="bilinear", align_corners=True).view(-1)
         return dist
 
-  
-class Neural_Prior(nn.Module):
-    def __init__(self, input_size=1000, dim_x=3, filter_size=128, act_fn='relu', layer_size=8, output_feat=False):
-        super().__init__()
-        self.input_size = input_size
-        self.layer_size = layer_size
-        self.output_feat = output_feat
+
+class encoding_func_1D:
+    def __init__(self, name, param=None, device='cpu'):
+        self.name = name
         
-        self.nn_layers = nn.ModuleList([])
-        # input layer (default: xyz -> 128)
-        if layer_size >= 1:
-            self.nn_layers.append(nn.Sequential(nn.Linear(dim_x, filter_size)))
-            if act_fn == 'relu':
-                self.nn_layers.append(nn.ReLU())
-            elif act_fn == 'sigmoid':
-                self.nn_layers.append(nn.Sigmoid())
-            
-            for _ in range(layer_size-1):
-                self.nn_layers.append(nn.Sequential(nn.Linear(filter_size, filter_size)))
-                if act_fn == 'relu':
-                    self.nn_layers.append(nn.ReLU())
-                elif act_fn == 'sigmoid':
-                    self.nn_layers.append(nn.Sigmoid())
+        if name == 'none':
+            self.dim = 1
+        else:
+            self.dim = param[1]
+            if name == 'gaussian':
+                self.dic = (torch.linspace(0., param[1], steps=param[1]+1, device=device)[:-1]/param[3]+param[2]).reshape(1,-1)
+                self.sig = torch.tensor(param[0]).to(device)
+            else:
+                print('Undifined encoding.')
                 
-            self.nn_layers.append(nn.Linear(filter_size, dim_x))
-        else:
-            self.nn_layers.append(nn.Sequential(nn.Linear(dim_x, dim_x)))
-
-    def forward(self, x):
-        """ points -> features
-            [B, N, 3] -> [B, K]
-        """
-        if self.output_feat:
-            feat = []
-        for layer in self.nn_layers:
-            x = layer(x)
-            if self.output_feat and layer == nn.Linear:
-                feat.append(x)
-
-        if self.output_feat:
-            return x, feat
-        else:
+    def __call__(self, x):
+        if self.name == 'none':
             return x
+        elif self.name == 'gaussian':
+            emb = (-0.5*(x-self.dic)**2/(self.sig**2)).exp()
+            emb = emb/(emb.norm(dim=1).max())
+            return emb
         
+        
+class blending_func_3D:
+    def __init__(self, encoding_func, dim=256, dim_xyz=[], xyz_min_int=[], indexing=True, device='cuda:0'):
+        self.name, self.sig = encoding_func
+        self.dim = dim
+        self.dim_xyz = dim_xyz
+        self.xyz_min_int = xyz_min_int
+        self.indexing = indexing
+        self.device = device
+        
+        if self.name == 'gaussian':
+            self.D = lambda x1,x2: (-0.25*((x1-x2))**2/(self.sig**2)).exp().to(device)   # NOTE: do not need to divide self.dim
+
+    def __call__(self, inp):
+        x = inp[:,0:1]
+        y = inp[:,1:2]
+        z = inp[:,2:3]
+        
+        xmin = torch.floor(x*self.dim) / self.dim
+        ymin = torch.floor(y*self.dim) / self.dim
+        zmin = torch.floor(z*self.dim) / self.dim
+        
+        if self.name=='gaussian':
+            d0 = self.D(torch.tensor([0.]).to(self.device),torch.tensor([0.]).to(self.device))
+            dd = self.D(torch.tensor([0.]).to(self.device),torch.tensor([1./self.dim]).to(self.device))
+            ff = d0**2-dd**2
+            
+            xda = self.D(xmin,x)
+            xdb = self.D(xmin+1./self.dim,x)
+            
+            xa = (xda*d0-xdb*dd)/ff
+            xb = (xdb*d0-xda*dd)/ff
+            
+            yda = self.D(ymin,y)
+            ydb = self.D(ymin+1./self.dim,y)
+            
+            ya = (yda*d0-ydb*dd)/ff
+            yb = (ydb*d0-yda*dd)/ff
+            
+            zda = self.D(zmin,z)
+            zdb = self.D(zmin+1./self.dim,z)
+            
+            za = (zda*d0-zdb*dd)/ff
+            zb = (zdb*d0-zda*dd)/ff
+
+            Ns = x.shape[0]
+            Nx = self.dim_xyz[0]-1
+            Ny = self.dim_xyz[1]-1
+            Nz = self.dim_xyz[2]-1
+            
+            xmin_grid, ymin_grid, zmin_grid = self.xyz_min_int
+            x_grid = (xmin - xmin_grid) * self.dim
+            y_grid = (ymin - ymin_grid) * self.dim
+            z_grid = (zmin - zmin_grid) * self.dim
+            
+            xyz_01 = x_grid*Ny*Nz+y_grid*Nz+z_grid
+            xyz_02 = x_grid*Ny*Nz+(y_grid+1)*Nz+z_grid
+            xyz_03 = (x_grid+1)*Ny*Nz+y_grid*Nz+z_grid
+            xyz_04 = (x_grid+1)*Ny*Nz+(y_grid+1)*Nz+z_grid
+            if self.indexing:
+                c = torch.cat([xa*ya*za, xa*ya*zb, xa*yb*za, xa*yb*zb, xb*ya*za, xb*ya*zb, xb*yb*za, xb*yb*zb],1)
+                y = torch.cat([xyz_01, xyz_01+1, xyz_02, xyz_02+1,
+                                    xyz_03, xyz_03+1, xyz_04, xyz_04+1],1).long()
+                return [y,c]
+
+
+class Indexing_Blend_Kron3_MLP(nn.Module):
+    def __init__(self, input_dim=[], width0=3, scaling=1.0, epsilon=1e-5):
+        super(Indexing_Blend_Kron3_MLP, self).__init__()
+        self.scaling = scaling
+        self.e = epsilon
+        
+        self.first = nn.ParameterDict({
+                'weight': nn.Parameter(2/math.sqrt(width0)*torch.rand(width0, input_dim[0], input_dim[1], input_dim[2])-1/math.sqrt(width0))})
+        
+    def forward(self, B, xyz):
+        x, y, z = xyz
+        x = x @ self.first.weight.transpose(1,2)
+        x = y @ x.transpose(1,2)
+        x = x @ z.transpose(0,1)
+        
+        # NOTE: add TV regularizer?
+        tv = torch.mean(torch.sqrt(self.e +
+            (x[:, :-1, :-1, 1:] - x[:, :-1, :-1, :-1]) ** 2 +
+            (x[:, :-1, 1:, :-1] - x[:, :-1, :-1, :-1]) ** 2 +
+            (x[:, 1:, :-1, :-1] - x[:, :-1, :-1, :-1]) ** 2).sum(dim=0))
+        reg_scaled = tv * self.scaling
+            
+        x = x.flatten(1,3).transpose(0,1)
+
+        x = (x[B[0]]*(B[1].unsqueeze(-1))).sum(1)
+
+        return x, reg_scaled
+    
         
 def solver(
     pc1: torch.Tensor,
     pc2: torch.Tensor,
     flow: torch.Tensor,
     options: argparse.Namespace,
-    net: nn.Module,
-    max_iters: int
+    max_iters: int,
 ):
-    
+
     if options.time:
         timers = Timers()
         timers.tic("solver_timer")
     
     pre_compute_st = time.time()
     solver_time = 0.
+    
+    total_losses = []
+    total_acc_strit = []
+    total_iter_time = []
+    
+    if options.earlystopping:
+        early_stopping = EarlyStopping(patience=options.early_patience, min_delta=options.early_min_delta)
+      
+    # ANCHOR: for complex encoding
+    complex_encode_time_st = time.time()
+    # NOTE: -1 for xyz min, +1 for xyz max to incorporate possible boundary out-of-range problem.
+    #        constraining all flows within [min(pc1 U pc2) - 1 coord, max(pc1 U pc2) + 1 coord].
+    pc1_min = torch.min(pc1, 1)[0].squeeze(0)
+    pc1_max = torch.max(pc1, 1)[0].squeeze(0)
 
+    pc2_min = torch.min(pc2, 1)[0].squeeze(0)
+    pc2_max = torch.max(pc2, 1)[0].squeeze(0)
+
+    xmin_int, ymin_int, zmin_int = torch.floor(torch.where(pc1_min<pc2_min, pc1_min, pc2_min) * options.grid_factor-1) / options.grid_factor
+    xmax_int, ymax_int, zmax_int = torch.ceil(torch.where(pc1_max>pc2_max, pc1_max, pc2_max) * options.grid_factor+1) / options.grid_factor
+    
+    sample_x = ((xmax_int - xmin_int) * options.grid_factor).int() + 1
+    sample_y = ((ymax_int - ymin_int) * options.grid_factor).int() + 1
+    sample_z = ((zmax_int - zmin_int) * options.grid_factor).int() + 1
+    
+    inner_encoding_x = encoding_func_1D('gaussian', [options.gauss_sigma, sample_x, xmin_int, options.grid_factor], options.device)
+    inner_encoding_y = encoding_func_1D('gaussian', [options.gauss_sigma, sample_y, ymin_int, options.grid_factor], options.device)
+    inner_encoding_z = encoding_func_1D('gaussian', [options.gauss_sigma, sample_z, zmin_int, options.grid_factor], options.device)
+            
+    outer_blending = blending_func_3D(['gaussian', options.gauss_sigma], dim=options.grid_factor, dim_xyz=[sample_x, sample_y, sample_z], 
+                                        xyz_min_int = [xmin_int, ymin_int, zmin_int],
+                                        indexing=True, device=options.device)
+    net = Indexing_Blend_Kron3_MLP(input_dim=[sample_x, sample_y, sample_z], scaling=options.reg_scaling, epsilon=options.epsilon).to(options.device)
+    
+    dt_start_time = time.time()
+    
+    xmin_int, ymin_int, zmin_int = torch.floor(torch.where(pc1_min<pc2_min, pc1_min, pc2_min) * options.dt_grid_factor-1) / options.dt_grid_factor
+    xmax_int, ymax_int, zmax_int = torch.ceil(torch.where(pc1_max>pc2_max, pc1_max, pc2_max)* options.dt_grid_factor+1) / options.dt_grid_factor
+    
+    # NOTE: build DT map
+    dt = DT(pc2.clone().squeeze(0).to(options.device), (xmin_int, ymin_int, zmin_int), (xmax_int, ymax_int, zmax_int), options.dt_grid_factor, options.device)
+    
+    dt_time = time.time() - dt_start_time
+    
+    pc1 = pc1.to(options.device).contiguous()
+    pc2 = pc2.to(options.device).contiguous()
+    flow = flow.to(options.device).contiguous()
+    print(pc1.shape, pc2.shape, flow.shape)
+    
     if options.init_weight:
         net.apply(init_weights)
         
@@ -399,34 +520,19 @@ def solver(
     params = net.parameters()
     
     optimizer = torch.optim.Adam(params, lr=options.lr, weight_decay=0)
-                
-    total_losses = []
-    total_acc_strit = []
-    total_iter_time = []
     
-    if options.earlystopping:
-        early_stopping = EarlyStopping(patience=options.early_patience, min_delta=options.early_min_delta)
-
-    dt_start_time = time.time()
+    # NOTE: inner_encoding (Gaussian)
+    grid_x = torch.linspace(0, sample_x, sample_x+1, device=options.device)[:-1] / options.grid_factor + xmin_int
+    grid_y = torch.linspace(0, sample_y, sample_y+1, device=options.device)[:-1] / options.grid_factor + ymin_int
+    grid_z = torch.linspace(0, sample_z, sample_z+1, device=options.device)[:-1] / options.grid_factor + zmin_int
     
-    pc1_min = torch.min(pc1.squeeze(0), 0)[0]
-    pc2_min = torch.min(pc2.squeeze(0), 0)[0]
-    pc1_max = torch.max(pc1.squeeze(0), 0)[0]
-    pc2_max = torch.max(pc2.squeeze(0), 0)[0]
+    encoded_grid_x = inner_encoding_x(grid_x.reshape(-1,1).to(options.device))
+    encoded_grid_y = inner_encoding_y(grid_y.reshape(-1,1).to(options.device))
+    encoded_grid_z = inner_encoding_z(grid_z.reshape(-1,1).to(options.device))
+    encoded_grid = [encoded_grid_x, encoded_grid_y, encoded_grid_z]
     
-    xmin_int, ymin_int, zmin_int = torch.floor(torch.where(pc1_min<pc2_min, pc1_min, pc2_min) * options.grid_factor-1) / options.grid_factor
-    xmax_int, ymax_int, zmax_int = torch.ceil(torch.where(pc1_max>pc2_max, pc1_max, pc2_max)* options.grid_factor+1) / options.grid_factor
-    print('xmin: {}, xmax: {}, ymin: {}, ymax: {}, zmin: {}, zmax: {}'.format(xmin_int, xmax_int, ymin_int, ymax_int, zmin_int, zmax_int))
-    
-    # NOTE: build DT map
-    dt = DT(pc2.clone().squeeze(0).to(options.device), (xmin_int, ymin_int, zmin_int), (xmax_int, ymax_int, zmax_int), options.grid_factor, options.device)
-
-    dt_time = time.time() - dt_start_time
-    
-    pc1 = pc1.to(options.device).contiguous()
-    pc2 = pc2.to(options.device).contiguous()
-    flow = flow.to(options.device).contiguous()
-    print(pc1.shape, pc2.shape, flow.shape)
+    pc1_kron_idx, pc1_kron = outer_blending(pc1.squeeze(0))
+    complex_encode_time = time.time() - complex_encode_time_st
     
     pre_compute_time = time.time() - pre_compute_st
     solver_time = solver_time + pre_compute_time
@@ -446,17 +552,20 @@ def solver(
     
     for epoch in range(max_iters):
         iter_time_init = time.time()
-
+    
         optimizer.zero_grad()
         
         net_time_st = time.time()
-        flow_pred = net(pc1)
+        flow_pred, tv_scaled = net([pc1_kron_idx, pc1_kron], encoded_grid)
+        flow_pred = flow_pred.unsqueeze(0)
         net_time = net_time + time.time() - net_time_st
         pc1_deformed = pc1 + flow_pred
         
         dt_query_st = time.time()
-        loss = dt.torch_bilinear_distance(pc1_deformed.squeeze(0)).mean()
+        loss_dt = dt.torch_bilinear_distance(pc1_deformed.squeeze(0)).mean()
         dt_query_time = dt_query_time + time.time() - dt_query_st
+        
+        loss = loss_dt + tv_scaled
         
         net_backward_st = time.time()
         loss.backward()
@@ -466,10 +575,10 @@ def solver(
         if options.earlystopping:
             if early_stopping.step(loss):
                 break
-            
+        
         iter_time = time.time() - iter_time_init
         solver_time = solver_time + iter_time
-
+        
         flow_pred_final = pc1_deformed - pc1
         flow_metrics = flow.clone()
         epe3d, acc3d_strict, acc3d_relax, outlier, angle_error = scene_flow_metrics(flow_pred_final, flow_metrics)
@@ -495,7 +604,7 @@ def solver(
                         f" [EPE: {epe3d:.3f}] [Acc strict: {acc3d_strict * 100:.3f}%]"
                         f" [Acc relax: {acc3d_relax * 100:.3f}%] [Angle error (rad): {angle_error:.3f}]"
                         f" [Outl.: {outlier * 100:.3f}%]")
-    
+            
     if options.time:
         timers.toc("solver_timer")
         time_avg = timers.get_avg("solver_timer")
@@ -514,12 +623,13 @@ def solver(
         'epoch': best_epoch,
         'solver_time': solver_time,
         'pre_compute_time': pre_compute_time,
+        'complex_encode_time': complex_encode_time,
     }
     
     info_dict['build_dt_time'] = dt_time
     info_dict['dt_query_time'] = dt_query_time
     info_dict['avg_dt_query_time'] = dt_query_time / epoch
-        
+    
     info_dict['network_time'] = net_time
     info_dict['avg_net_time'] = net_time / epoch
     info_dict['net_backward_time'] = net_backward_time
@@ -558,13 +668,8 @@ def optimize_neural_prior(options, data_loader):
     if options.time:
         timers = Timers()
         timers.tic("total_time")
-    
+        
     outputs = []
-    
-    if options.model == 'neural_prior':
-        net = Neural_Prior(filter_size=options.hidden_units, act_fn=options.act_fn, layer_size=options.layer_size).to(options.device)
-    else:
-        raise Exception("Model not available.")
     
     for i in range(len(data_loader)):
         fi_name = data_loader[i]
@@ -580,10 +685,10 @@ def optimize_neural_prior(options, data_loader):
             pc1 = pc1[:, sample_idx]
             pc2 = pc2[:, sample_idx]
             flow = flow[:, sample_idx]
-        
+    
         logging.info(f"# {i} Working on sample: {fi_name}...")
         
-        info_dict = solver(pc1, pc2, flow, options, net, options.iters)
+        info_dict = solver(pc1, pc2, flow, options, options.iters)
 
         # Collect results.
         outputs.append(dict(list(info_dict.items())[1:]))
@@ -603,10 +708,10 @@ def optimize_neural_prior(options, data_loader):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fast Neural Scene Flow.")
+    parser = argparse.ArgumentParser(description="Neural Scene Flow Prior.")
     
     # ANCHOR: general configuration
-    parser.add_argument('--exp_name', type=str, default='fast_neural_scene_flow_mlp_dt', metavar='N', help='Name of the experiment.')
+    parser.add_argument('--exp_name', type=str, default='fast_neural_scene_flow_kronecker_dt', metavar='N', help='Name of the experiment.')
     parser.add_argument('--num_points', type=int, default=2048, help='Point number [default: 2048].')
     parser.add_argument('--batch_size', type=int, default=1, metavar='batch_size', help='Batch size.')
     parser.add_argument('--iters', type=int, default=5000, metavar='N', help='Number of iterations to optimize the model.')
@@ -624,14 +729,16 @@ if __name__ == "__main__":
     parser.add_argument('--init_weight', action='store_true', default=False, help='whether initialize weights on each scenes or not.')
     parser.add_argument('--earlystopping', action='store_true', default=False, help='whether to use early stopping or not.')
     
-    # ANCHOR: for neural prior
-    parser.add_argument('--model', type=str, default='neural_prior', choices=['neural_prior', 'linear_model', 'kronecker_model'], metavar='N', help='Model to use.')
-    parser.add_argument('--hidden_units', type=int, default=128, metavar='N', help='Number of hidden units in neural prior')
-    parser.add_argument('--layer_size', type=int, default=8, help='how many hidden layers in the model.')
-    parser.add_argument('--act_fn', type=str, default='relu', metavar='AF', help='activation function for neural prior.')
+    # ANCHOR: for kronecker PE
+    parser.add_argument('--grid_factor', type=float, default=2., help='grid size.')
+    parser.add_argument('--gauss_sigma', type=float, default=0.008, help='sigma for gaussian PE.')
+    
+    # ANCHOR: for explicit regularizer
+    parser.add_argument('--reg_scaling', type=float, default=1., help='scaling factor for regularizer.')
+    parser.add_argument('--epsilon', type=float, default=1e-5, help='epsilon to prevent divide by zeros in regularizer.')
     
     # ANCHOR: for distance transform
-    parser.add_argument('--grid_factor', type=float, default=10., help='grid cell size=1/grid_factor.')
+    parser.add_argument('--dt_grid_factor', type=float, default=10., help='grid size for distance transform.')
     
     options = parser.parse_args()
 

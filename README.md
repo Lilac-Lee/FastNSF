@@ -79,6 +79,10 @@ Local source notebook could be found [here](demo/optimize_2d_fastNSF_dt.ipynb).
     python optimization.py --device cuda:0 --dataset WaymoOpenSceneFlowDataset --dataset_path ./dataset/waymo --exp_name opt_waymo_open_full_points --batch_size 1 --iters 5000 --num_points 8192 --model neural_prior --hidden_units 128 --layer_size 8 --lr 0.01 --act_fn relu --earlystopping --early_patience 5 --early_min_delta 0.001 --grid_factor 10 --init_weight
     ```
 
+    #### 3. using Kronecker PE + linear model
+    ```
+    python opt_linear.py --device cuda:0 --dataset WaymoOpenSceneFlowDataset --dataset_path ./dataset/waymo --exp_name opt_waymo_open_full_points_linear --batch_size 1 --iters 5000 --use_all_points --lr 0.03 --earlystopping --early_patience 10 --early_min_delta 0.001 --gauss_sigma 6.0 --grid_factor 0.5 --reg_scaling 0.5 --dt_grid_factor 10 --init_weight
+    ```
 
 - Argoverse scene flow dataset
     #### 1. using full point cloud
@@ -89,6 +93,11 @@ Local source notebook could be found [here](demo/optimize_2d_fastNSF_dt.ipynb).
     #### 2. 8,192 points experiment
     ```
     python optimization.py --device cuda:0 --dataset ArgoverseSceneFlowDataset --dataset_path ./dataset/argoverse --exp_name opt_argoverse_8192_points --batch_size 1 --iters 5000 --num_points 8192 --model neural_prior --hidden_units 128 --layer_size 8 --lr 0.01 --act_fn relu --earlystopping --early_patience 5 --early_min_delta 0.001 --grid_factor 10 --init_weight
+    ```
+
+    #### 3. using Kronecker PE + linear model
+    ```
+    python opt_linear.py --device cuda:0 --dataset ArgoverseSceneFlowDataset --dataset_path ./dataset/argoverse --exp_name opt_argoverse_full_points_linear --batch_size 1 --iters 5000 --use_all_points --lr 0.03 --earlystopping --early_patience 10 --early_min_delta 0.001 --gauss_sigma 5.0 --grid_factor 0.5 --reg_scaling 0.5 --dt_grid_factor 10 --init_weight
     ```
 
 
